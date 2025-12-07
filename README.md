@@ -85,7 +85,7 @@ Two independent approaches:
 
 ---
 
-## **Approach 1 — Nav2-Based Follower**
+## **Approach 1: Nav2-Based Follower**
 
 **Files:** `yolo_nav2_follower.py`, `nav_to_pose_test.py`
 
@@ -101,7 +101,7 @@ This is the **recommended production approach**.
 
 ---
 
-## **Approach 2 — Direct Velocity Follower**
+## **Approach 2: Direct Velocity Follower**
 
 **File:** `yolo_follower.py`
 
