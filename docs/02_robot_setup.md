@@ -1,136 +1,117 @@
-
 # Robot Setup (Onboard Jackal PC)
 
-This guide assumes you are using a Clearpath Jackal J100 running the ROS 2 Jazzy developer image.
+This guide describes how to configure the Clearpath Jackal onboard computer to run the Hold My Gear follower system. It assumes a Clearpath Jackal J100 running the ROS 2 Jazzy developer image.
+
+---
 
 ## 1. Base System Assumptions
 
-The Jackal image should already include:
+The Jackal image is assumed to provide:
 
 - ROS 2 Jazzy
 - Clearpath platform services
 - Nav2 and SLAM Toolbox
-- A pre-created workspace at `~/clearpath_ws`
+- A workspace at `~/clearpath_ws`
 
-If your image differs, adapt the workspace paths accordingly.
+If your image differs, adapt the paths accordingly.
 
 ---
 
 ## 2. Install System Dependencies
 
-1. **Update apt and rosdep**
+1. Update `apt` and `rosdep`:
 
    ```bash
    sudo apt update
    rosdep update
 
-
-2. **Install RealSense driver (if not already installed)**
+2. Install RealSense driver (if not already installed):
 
    ```bash
    sudo apt install ros-jazzy-realsense2-camera
    ```
 
-3. **Install Python dependencies for YOLO**
-
-   From your home directory:
+3. Create and configure a Python virtual environment for YOLO:
 
    ```bash
    cd ~
    python3 -m venv vision_venv
    source vision_venv/bin/activate
    pip install --upgrade pip
-   pip install -r ~/clearpath_ws/src/hold-my-gear-jackal/requirements.txt
+   pip install -r ~/clearpath_ws/src/hold_my_gear_jackal/requirements.txt
    ```
 
-   (You can store `vision_venv` wherever you prefer; update paths accordingly.)
+You can place `vision_venv` elsewhere; update paths accordingly.
 
 ---
 
 ## 3. Clone the Project and Add the Package
 
-1. **Go to your Clearpath workspace source folder**
+1. Navigate to the Clearpath workspace source folder:
 
    ```bash
    cd ~/clearpath_ws/src
    ```
 
-2. **Clone the repo**
+2. Clone the repository:
 
    ```bash
-   git clone https://github.com/<your-org>/hold-my-gear-jackal.git
+   git clone https://github.com/tylerjhom/hold_my_gear_jackal.git
    ```
 
-3. **Expose the `jackal_yolo_follow` package to the workspace**
-
-   Either symlink or copy:
+3. Expose the `jackal_yolo_follow` package to the workspace (copy or symlink):
 
    ```bash
-   ln -s hold-my-gear-jackal/robot/jackal_yolo_follow .
+   cp -r hold_my_gear_jackal/robot/packages/jackal_yolo_follow .
+   # or:
+   # ln -s hold_my_gear_jackal/robot/packages/jackal_yolo_follow .
    ```
 
 ---
 
 ## 4. Use the Provided `robot.yaml`
 
-1. Copy (or symlink) the project’s `robot.yaml` to Clearpath’s config location:
+1. Copy the project’s `robot.yaml` into Clearpath’s configuration location:
 
    ```bash
-   sudo cp ~/clearpath_ws/src/hold-my-gear-jackal/robot/config/robot.yaml /etc/clearpath/robot.yaml
+   sudo cp ~/hold_my_gear_jackal/robot/config/robot.yaml /etc/clearpath/robot.yaml
    ```
 
-2. Regenerate Clearpath bash setup if required:
+2. If necessary, regenerate the Clearpath `setup.bash`:
 
    ```bash
    source /opt/ros/jazzy/setup.bash
    sudo ros2 run clearpath_generator_common generate_bash -s /etc/clearpath
    ```
 
-   (Your image may already be configured; only regenerate if you changed robot config.)
+Many images will already be configured; only regenerate if you have modified the robot configuration.
 
 ---
 
 ## 5. Build the Workspace
 
-```bash
-cd ~/clearpath_ws
-rosdep install --from-paths src --ignore-src -r -y
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
-```
+1. Install dependencies and build:
 
-Add the workspace to your shell (if not already in `.bashrc`):
+   ```bash
+   cd ~/clearpath_ws
+   rosdep install --from-paths src --ignore-src -r -y
+   colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+   ```
 
-```bash
-echo "source ~/clearpath_ws/install/setup.bash" >> ~/.bashrc
-source ~/.bashrc
-```
+2. Source the workspace and add it to `.bashrc` if desired:
+
+   ```bash
+   echo "source ~/clearpath_ws/install/setup.bash" >> ~/.bashrc
+   source ~/.bashrc
+   ```
 
 ---
 
-## 6. Launching the Robot Stack
+## 6. Launching the Navigation Stack
 
-### 6.1 Bring up platform + SLAM + Nav2
+This section describes the sequence used during the demo to bring up camera, mapping, and navigation.
 
-Depending on your Clearpath setup, this may be one of:
-
-```bash
-# Example: Clearpath Nav2 demo
-ros2 launch clearpath_nav2_demos nav2.launch.py
-```
-
-or a similar Clearpath-provided launch file that starts:
-
-* Jackal base controllers
-* SLAM Toolbox
-* Nav2 stack
-
-Confirm in RViz (from the offboard laptop) that:
-
-* The robot base frame is present.
-* SLAM is building a map.
-* Nav2 is active.
-
-### 6.2 Bring up the RealSense camera
+### 6.1 Launch the RealSense Camera
 
 On the robot:
 
@@ -138,58 +119,126 @@ On the robot:
 ros2 launch realsense2_camera rs_launch.py
 ```
 
-Confirm topics (e.g.):
+Verify that the color and depth topics are present (for example):
 
-* `/j100_0000/sensors/camera_0/color/image`
-* `/j100_0000/sensors/camera_0/depth/image`
+* `/camera/camera/color/image_raw`
+* `/camera/camera/depth/image_rect_raw`
+
+The exact topic names may differ depending on camera configuration.
+
+---
+
+### 6.2 Depth Image to Laser Scan Conversion
+
+Run the `depthimage_to_laserscan` node to convert the depth image into a 2D scan compatible with SLAM Toolbox:
+
+```bash
+ros2 run depthimage_to_laserscan depthimage_to_laserscan_node \
+  --ros-args \
+  -r depth:=/camera/camera/depth/image_rect_raw \
+  -r depth_camera_info:=/camera/camera/depth/camera_info \
+  -r scan:=/j100_0000/sensors/lidar2d_0/scan \
+  -p range_min:=0.3 \
+  -p range_max:=5.0 \
+  -p output_frame:=base_link
+```
+
+This command:
+
+* Takes depth data from the RealSense camera.
+* Publishes a `sensor_msgs/LaserScan` to the `/j100_0000/sensors/lidar2d_0/scan` topic.
+* Sets the frame to `base_link` so that SLAM Toolbox and Nav2 treat the scan as if it came from a planar lidar mounted at the robot base.
+
+---
+
+### 6.3 Launch SLAM
+
+Start SLAM Toolbox using Clearpath’s demo:
+
+```bash
+ros2 launch clearpath_nav2_demos slam.launch.py
+```
+
+---
+
+### 6.4 Launch Nav2
+
+Start Nav2 with Clearpath’s demo launch file:
+
+```bash
+ros2 launch clearpath_nav2_demos nav2.launch.py
+```
+
+Verify that the map topic is publishing:
+
+```bash
+ros2 topic hz /j100_0000/map
+```
 
 ---
 
 ## 7. Running the Follower Nodes
 
-### 7.1 Method 1 – Nav2-based follower (recommended)
-
-Starts both the YOLO detection node and the Nav2 bridge node.
+Before running the follower nodes, activate the YOLO virtual environment:
 
 ```bash
-ros2 launch jackal_yolo_follow yolo_nav2_follow.launch.py
+source ~/vision_venv/bin/activate
 ```
 
-Conceptually, this launch file should:
+### 7.1 Method 1 – Nav2-Based Follower (Recommended)
 
-* Start `yolo_nav2_follower`:
+Run the Nav2 follower node:
 
-  * Subscribes to camera image.
+```bash
+ros2 run jackal_yolo_follow yolo_nav2_follower
+```
+
+You may also run the Nav2 test node independently:
+
+```bash
+ros2 run jackal_yolo_follow nav_to_pose_test
+```
+
+Conceptually, the two nodes perform:
+
+* `yolo_nav2_follower`
+
+  * Subscribes to RGB (and depth) images.
   * Runs YOLO.
-  * Publishes `geometry_msgs/PoseStamped` on a `goal_pose` topic.
-* Start `nav_to_pose_test`:
+  * Publishes `geometry_msgs/PoseStamped` goals on a dedicated topic.
 
-  * Subscribes to `goal_pose`.
-  * Uses `nav2_simple_commander.BasicNavigator` to send Nav2 goals.
-  * Cancels/updates goals based on new target positions.
+* `nav_to_pose_test`
 
-### 7.2 Method 2 – Direct velocity follower
+  * Subscribes to the goal topic.
+  * Uses `nav2_simple_commander.BasicNavigator` to send goals to Nav2.
+  * Handles goal updates and cancellations.
+
+In practice, you may wrap these nodes into a single launch file for convenience.
+
+---
+
+### 7.2 Method 2 – Direct Velocity Follower
+
+Run the direct follower:
 
 ```bash
-ros2 launch jackal_yolo_follow yolo_direct_follow.launch.py
+ros2 run jackal_yolo_follow yolo_follower
 ```
 
-This mode:
+This node:
 
-* Runs `yolo_follower`:
+* Subscribes to camera topics.
+* Computes linear and angular velocities based on the target position.
+* Publishes directly to `/cmd_vel`.
 
-  * Subscribes to camera (and optionally depth).
-  * Computes linear and angular velocity commands to follow the person.
-  * Publishes `/cmd_vel` directly.
-
-**Warning:** This mode does not use Nav2, SLAM, or obstacle avoidance. Use only in controlled environments and at low speeds.
+This mode does not use SLAM or Nav2 and does not perform obstacle avoidance. Use only in controlled environments and at low speeds.
 
 ---
 
 ## 8. Stopping the System
 
 * Use `Ctrl+C` in each terminal to stop nodes.
-* Use the Jackal E-stop for emergency stops.
-* Optionally, stop base services using your standard Clearpath commands if needed.
+* Use the physical Jackal E-stop for emergency stop.
+* Shut down platform services using your standard Clearpath procedures if required.
 
 ````
