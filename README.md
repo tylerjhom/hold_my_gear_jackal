@@ -42,9 +42,6 @@ hold-my-gear-jackal/
 │               └── yolo_follower.py
 │
 └── offboard/
-    ├── rviz/
-    │   └── jackal_follow.rviz
-    │
     └── config/
         ├── cyclonedds.xml
         ├── robot.yaml
