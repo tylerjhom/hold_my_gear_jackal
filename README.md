@@ -54,7 +54,7 @@ hold-my-gear-jackal/
         └── platform-extras/
 ```
 
-### 📌 Key Idea
+### Main Folders
 
 * **`robot/`** contains everything that runs on the Jackal onboard PC.
 * **`offboard/`** contains visualization & configuration files used on your laptop.
@@ -64,22 +64,22 @@ hold-my-gear-jackal/
 
 # **2. System Overview**
 
-### 🔹 Sensors
+### Sensors
 
 * Intel RealSense D435 depth + RGB camera
 * Jackal IMU + wheel odometry
 
-### 🔹 Perception
+### Perception
 
 * YOLOv11 (Ultralytics) detects a single firefighter in RGB images
 * Bounding box → pixel offset → relative target pose
 
-### 🔹 Mapping & Localization
+### Mapping & Localization
 
 * SLAM Toolbox generates a map
 * Nav2 uses AMCL or SLAM state for localization
 
-### 🔹 Navigation
+### Navigation
 
 Two independent approaches:
 
@@ -92,8 +92,8 @@ Two independent approaches:
 Pipeline:
 
 1. YOLO detects the target in RGB.
-2. Depth measurement → 3D relative target position.
-3. Convert to global pose → publish `PoseStamped`.
+2. Depth measurement to 3D relative target position.
+3. Convert to global pose to publish `PoseStamped`.
 4. Nav2 receives pose as a goal and plans a safe path.
 5. Jackal follows while avoiding obstacles.
 
@@ -140,7 +140,7 @@ Great for testing, not safe indoors or crowded areas.
 
 ## **Software**
 
-### 🟦 *Robot (onboard computer)*
+### *Robot (onboard computer)*
 
 * ROS 2 Jazzy (flashed by Clearpath)
 * Nav2 (installed via Clearpath packages)
@@ -148,7 +148,7 @@ Great for testing, not safe indoors or crowded areas.
 * RealSense ROS2 driver (`realsense2_camera`)
 * Python3.12 + YOLO dependencies (from `requirements.txt`)
 
-### 🟧 *Offboard Laptop*
+### *Offboard Laptop*
 
 * ROS 2 Jazzy Desktop
 * Clearpath Desktop metapackage (`ros-jazzy-clearpath-desktop`)
@@ -166,7 +166,7 @@ Full details are in `docs/02_robot_setup.md` and `docs/03_offboard_setup.md`.
 
 ## **4.1 Robot Setup (Onboard PC)**
 
-### 1️⃣ Clone this repo (via HTTPS with Personal Access Token)
+### 1. Clone this repo (via HTTPS with Personal Access Token)
 
 ```bash
 cd ~/clearpath_ws/src
@@ -174,7 +174,7 @@ git clone https://github.com/tylerjhom/hold_my_gear_jackal.git
 cp -r hold_my_gear_jackal/robot/packages/jackal_yolo_follow .
 ```
 
-### 2️⃣ Build the workspace
+### 2. Build the workspace
 
 ```bash
 cd ~/clearpath_ws
@@ -182,7 +182,7 @@ rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
-### 3️⃣ Update Clearpath robot.yaml (if needed)
+### 3. Update Clearpath robot.yaml (if needed)
 
 ```bash
 sudo cp ~/hold_my_gear_jackal/robot/config/robot.yaml /etc/clearpath/robot.yaml
@@ -190,13 +190,13 @@ sudo cp ~/hold_my_gear_jackal/robot/config/robot.yaml /etc/clearpath/robot.yaml
 
 (Reboot or regenerate setup if required.)
 
-### 4️⃣ Launch RealSense driver
+### 4. Launch RealSense driver
 
 ```bash
 ros2 launch realsense2_camera rs_launch.py
 ```
 
-### 5️⃣ Launch a follower mode
+### 5. Launch a follower mode
 
 #### Nav2 follower:
 
@@ -216,14 +216,14 @@ ros2 run jackal_yolo_follow yolo_follower
 
 ## **4.2 Offboard Laptop Setup**
 
-### 1️⃣ Create or reuse offboard workspace
+### 1. Create or reuse offboard workspace
 
 ```bash
 cd ~/jackal_follow_ws/src
 git clone https://github.com/tylerjhom/hold_my_gear_jackal.git
 ```
 
-### 2️⃣ Build (optional; only if running offboard nodes)
+### 2. Build (optional; only if running offboard nodes)
 
 ```bash
 cd ~/jackal_follow_ws
@@ -231,7 +231,7 @@ rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
 ```
 
-### 3️⃣ Start RViz
+### 3. Start RViz
 
 ```bash
 rviz2 -d ~/jackal_follow_ws/src/hold_my_gear_jackal/offboard/rviz/jackal_follow.rviz
