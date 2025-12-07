@@ -27,7 +27,6 @@ setup(
             'yolo_follower = jackal_yolo_follow.yolo_follower:main',
             'nav_to_pose_test = jackal_yolo_follow.nav_to_pose_test:main',
             'yolo_nav2_follower = jackal_yolo_follow.yolo_nav2_follower:main',
-            'yolo_nav_follower = jackal_yolo_follow.yolo_nav_follower:main',
         ],
     },
 )
