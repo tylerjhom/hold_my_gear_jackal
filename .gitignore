@@ -1,1 +1,105 @@
+## ROS 2 / Colcon Build Artifacts
+build/
+install/
+log/
+colcon_install_layout/
+colcon_ws.log
+
+# If users clone this repo into ~/clearpath_ws/src
+# we still don't want workspace-level build products:
+**/build/
+**/install/
+**/log/
+
+
+## Python / Virtual Environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+
+
+## Virtual environments
+venv/
+vision_venv/
+.env/
+.env.*/
+*.venv/
+*.virtualenv/
+
+
+## Camera / Sensor Data Dumps
+*.bag
+*.mcap
+*.pcd
+*.ply
+*.png
+*.jpg
+*.jpeg
+*.ppm
+*.pgm
+*.mp4
+*.mov
+
+
+## RealSense / Dev logs
+realsense.log
+rs_*_log.txt
+
+
+## YOLO / Ultralytics Downloads
+*.pt
+*.onnx
+*.engine
+runs/
+
+
+## Clearpath-Generated Configuration
+# Offboard setup folder contents—should be copied,
+# not committed, unless explicitly placed under offboard/config.
+clearpath/
+robot_setup.bash
+setup.bash
+
+
+## Editor / IDE / System Files
+.vscode/
+.vscode/*
+.idea/
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+*.iml
+
+
+## Temporary / Cache Files
+*.tmp
+*.log
+*.bak
+*.old
+*.orig
+*.lock
+
+# Pip cache
+pip-wheel-metadata/
+pip-selfcheck.json
+
+
+## Notebook / Data Artifacts
+*.ipynb_checkpoints/
+*.csv
+*.xls
+*.xlsx
+*.parquet
+
+
+
+## Safety: ignore any mistakenly copied workspace
+jackal_follow_ws/
+clearpath_ws/
+devel/
+install_isolated/
 
