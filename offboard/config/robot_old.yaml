@@ -1,0 +1,121 @@
+serial_number: j100-0000
+version: 0
+system:
+  hosts:
+    - hostname: cpr-j100-0000
+      ip: 10.10.0.7
+    - hostname: offboard-computer
+      ip: 10.10.10.37
+    - hostname: kates-computer
+      ip: 10.10.10.42
+    - hostname: tyler-hom-IdeaPad-Pro-5-16IMH9
+      ip: 10.10.10.43
+  ros2:
+    namespace: j100_0000
+    middleware:
+      implementation: rmw_fastrtps_cpp
+      discovery: server
+      servers:
+        - hostname: cpr-j100-0000
+        - hostname: offboard-computer
+        - hostname: kates-computer
+        - hostname: tyler-hom-IdeaPad-Pro-5-16IMH9
+platform:
+  controller: ps4
+  attachments:
+    - name: front_fender
+      type: j100.fender
+    - name: rear_fender
+      type: j100.fender
+      rpy: [0.0, 0.0, 3.1415]
+
+    # New addition
+    - name: ark_enclosure
+      type: j100.top_plate
+      model: ark_enclosure
+      parent: default_mount
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+      enabled: true
+
+# Probably also need to add mounts & links?
+# Copy and pasted this in from clearpath config docs, need to validate      
+sensors:
+  camera:
+    - model: intel_realsense
+      urdf_enabled: true
+      launch_enabled: true
+      parent: base_link  # Can I make the ark_enclosure the parent link?
+      xyz: [-0.1, 0.0, 0.25]
+      rpy: [0.0, 0.0, 0.0]
+      ros_parameters:
+        intel_realsense:
+          camera_name: camera_0
+          device_type: d435
+          serial_no: "841512071251"
+          enable_color: true
+          rgb_camera.color_profile: 640,480,30
+          enable_depth: true
+          depth_module.depth_profile: 640,480,15
+          pointcloud.enable: trueserial_number: j100-0000
+version: 0
+system:
+  hosts:
+    - hostname: cpr-j100-0000
+      ip: 10.10.0.7
+    - hostname: offboard-computer
+      ip: 10.10.10.37
+    - hostname: kates-computer
+      ip: 10.10.10.42
+    - hostname: tyler-hom-IdeaPad-Pro-5-16IMH9
+      ip: 10.10.10.43
+  ros2:
+    namespace: j100_0000
+    middleware:
+      implementation: rmw_fastrtps_cpp
+      discovery: server
+      servers:
+        - hostname: cpr-j100-0000
+        - hostname: offboard-computer
+        - hostname: kates-computer
+        - hostname: tyler-hom-IdeaPad-Pro-5-16IMH9
+    # New addition
+    workspaces:
+      - /home/robot/colcon_ws/install/setup.bash
+      - /home/robot/clearpath_ws/install/setup.bash
+platform:
+  controller: ps4
+  attachments:
+    - name: front_fender
+      type: j100.fender
+    - name: rear_fender
+      type: j100.fender
+      rpy: [0.0, 0.0, 3.1415]
+    - name: ark_enclosure
+      type: j100.top_plate
+      model: ark_enclosure
+      parent: default_mount
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+      enabled: true
+
+# Probably also need to add mounts & links?
+# Copy and pasted this in from clearpath config docs, need to validate      
+sensors:
+  camera:
+    - model: intel_realsense
+      urdf_enabled: true
+      launch_enabled: true
+      parent: base_link  # Can I make the ark_enclosure the parent link?
+      xyz: [-0.1, 0.0, 0.25]
+      rpy: [0.0, 0.0, 135.1]
+      ros_parameters:
+        intel_realsense:
+          camera_name: camera_0
+          device_type: d435
+          serial_no: 841512071251
+          enable_color: true
+          rgb_camera.color_profile: 640,480,30
+          enable_depth: true
+          depth_module.depth_profile: 640,480,15
+          pointcloud.enable: true

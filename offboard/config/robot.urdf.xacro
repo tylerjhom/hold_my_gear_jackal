@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="j100-0000">
+
+  <!-- Common -->
+  <xacro:include filename="$(find clearpath_platform_description)/urdf/common.urdf.xacro"/>
+
+  <!-- Platform -->
+  <xacro:include filename="$(find clearpath_platform_description)/urdf/j100/j100.urdf.xacro"/>
+  <xacro:j100 control="diff_4wd" front_wheels="outdoor" rear_wheels="outdoor"/>
+
+
+  <!-- Attachments -->
+
+  <xacro:include filename="$(find clearpath_platform_description)/urdf/j100/attachments/fender.urdf.xacro"/>
+  <xacro:fender name="front_fender" model="default" parent_link="base_link">
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+  </xacro:fender>
+
+  <xacro:include filename="$(find clearpath_platform_description)/urdf/j100/attachments/fender.urdf.xacro"/>
+  <xacro:fender name="rear_fender" model="default" parent_link="base_link">
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 3.1415"/>
+  </xacro:fender>
+
+  <xacro:include filename="$(find clearpath_platform_description)/urdf/j100/attachments/top_plate.urdf.xacro"/>
+  <xacro:top_plate name="ark_enclosure" model="ark_enclosure" parent_link="default_mount">
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+  </xacro:top_plate>
+
+
+  <!-- Links -->
+
+
+  <!-- Mounts -->
+
+
+  <!-- Sensors -->
+
+  <!-- camera_0 -->
+  <xacro:include filename="$(find clearpath_sensors_description)/urdf/intel_realsense.urdf.xacro"/>
+  <xacro:intel_realsense name="camera_0" parent_link="base_link" update_rate="30" image_height="480" image_width="640" model="d435">
+    <origin xyz="0.12 0.0 0.25" rpy="0.0 0.0 0.0"/>
+  </xacro:intel_realsense>
+
+
+  <!-- Manipulators -->
+
+
+  <!-- Extras -->
+
+
+</robot>
