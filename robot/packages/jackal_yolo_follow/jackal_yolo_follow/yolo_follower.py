@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-print()"Starting Follow Mode")
+print("Starting Follow Mode")
 
 import time
 import numpy as np
