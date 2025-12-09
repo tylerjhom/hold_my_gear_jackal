@@ -19,10 +19,10 @@ Two operating modes are provided:
 
 ```text
 hold_my_gear_jackal/
-├── README.md
 ├── requirements.txt
 │
 ├── docs/
+│   ├── 01_overview.md
 │   ├── 02_robot_setup.md
 │   └── 03_offboard_setup.md
 │
