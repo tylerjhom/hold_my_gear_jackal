@@ -23,26 +23,25 @@ COLOR_TOPIC = "/camera/camera/color/image_raw"
 DEPTH_TOPIC = "/camera/camera/depth/image_rect_raw"
 COLOR_INFO_TOPIC = "/camera/camera/color/camera_info"
 
-MODEL_PATH = "/home/robot/yolo11n.pt"   # make sure this exists
+MODEL_PATH = "/home/robot/yolo11n.pt" # make sure this exists
 
-TARGET_DISTANCE = 1.5        # meters we want to stay from the person
-RUN_RATE_SEC = 1.0           # YOLO inference rate
+TARGET_DISTANCE = 1.5 # meters we want to stay from the person
+RUN_RATE_SEC = 1.0 # YOLO inference rate
 
-MIN_VALID_DEPTH = 0.4        # ignore anything closer than this (sensor noise)
-MAX_VALID_DEPTH = 8.0        # ignore anything beyond this
-DEADBAND = 0.4               # |error| below this → no new goal
+MIN_VALID_DEPTH = 0.4 # ignore anything closer than this (sensor noise)
+MAX_VALID_DEPTH = 8.0 # ignore anything beyond this
+DEADBAND = 0.4
 
 # only send a new goal if the forward distance changes by this much
-MIN_FORWARD_DELTA = 0.5      # meters (now used as planar delta threshold)
+MIN_FORWARD_DELTA = 0.5 # meters (now used as planar delta threshold)
 
-GOAL_COOLDOWN_SEC = 3.0  # To not send goals immediately one after the other 
+GOAL_COOLDOWN_SEC = 3.0 # To not send goals immediately one after the other 
 
 # If CameraInfo is missing, fall back to a rough HFOV estimate to compute fx
 DEFAULT_H_FOV_DEG = 69.0
 
 # Prevent crazy lateral commands when the person is at screen edge / far away
-MAX_LATERAL_GOAL = 2.0       # meters
-# ----------------------------
+MAX_LATERAL_GOAL = 2.0 # meters
 
 
 class YoloNav2Follower(Node):
@@ -117,7 +116,7 @@ class YoloNav2Follower(Node):
         if now - self.last_inference_time < RUN_RATE_SEC:
             if self.image_frames_seen % 30 == 1:
                 self.get_logger().debug(
-                    "[IMAGE_CB] Skipping frame due to rate limit."
+                    "Skipping frame due to rate limit."
                 )
             return
 
@@ -198,7 +197,7 @@ class YoloNav2Follower(Node):
             self.get_logger().info("[FOLLOW] No valid person found in this frame.")
 
 
-    # Goal Logic ~
+    # Goal Logic
     def send_follow_goal(self, person):
         cx, cy, depth = person
         now = time.time()
@@ -258,7 +257,7 @@ class YoloNav2Follower(Node):
 
         # Create new goal
         goal = PoseStamped()
-        goal.header.frame_id = "base_link"  # Switched everything to base_link to give relative to robot reference frame
+        goal.header.frame_id = "base_link" # Switched everything to base_link to give relative to robot reference frame
         #  goal.header.frame_id = "map"
         goal.header.stamp = self.get_clock().now().to_msg()
         goal.pose.position.x = forward
@@ -287,7 +286,7 @@ def main():
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        node.get_logger().info("Keyboard interrupt; shutting down YOLO→Nav2 follower.")
+        node.get_logger().info("Keyboard interrupt; shutting down YOLO to Nav2 follower.")
     finally:
         node.destroy_node()
         rclpy.shutdown()
