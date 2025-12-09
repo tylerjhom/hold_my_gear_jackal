@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-print("==== SCRIPT EXECUTING (YOLO → Nav2 FOLLOWER) ====")
+print("Starting YOLO to Nav2 Follower")
 
 import time
 
