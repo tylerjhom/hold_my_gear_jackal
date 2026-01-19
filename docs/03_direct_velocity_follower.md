@@ -1,259 +1,246 @@
----
+# 03 - Direct Velocity Follower (YOLO → /cmd_vel)
 
-## `docs/03_offboard_setup.md`
+This document explains how the **Direct Velocity follower** works end-to-end. This mode bypasses Nav2 entirely and drives the robot by publishing velocity commands directly based on YOLO detections and depth measurements.
 
-```md
-# 03 — Direct Velocity Follower (YOLO → /cmd_vel)
-
-This document explains how the **Direct Velocity follower** works end-to-end, including:
-- what inputs it uses
-- how it computes turn + forward velocity
-- smoothing and lost-target behavior
-- why it is simpler but less safe than Nav2
-
-> **Summary:** YOLO detects a person and publishes `/cmd_vel` directly to keep the person centered and ~1.5 m away. There is **no planning** and **no obstacle avoidance**.
+This approach is intentionally simple and is intended for testing, development, and controlled environments.
 
 ---
 
-## 1) The Direct Velocity Architecture
+## 1. Overview
 
-### 1.1 Node Roles
+In Direct Velocity mode, the robot operates as a reactive visual servoing system:
 
-This mode typically uses a single node:
+1. YOLO detects a firefighter in the RGB image.
+2. Depth data is used to estimate distance to the firefighter.
+3. Horizontal image offset is converted into a turn command.
+4. Distance error is converted into a forward velocity.
+5. Commands are published directly to `/cmd_vel`.
 
-- **`yolo_follower.py`**  
-  *Perception + control*  
-  - subscribes to RGB + depth  
-  - runs YOLO to detect a person  
-  - estimates distance and horizontal offset  
-  - computes linear + angular velocity commands  
-  - publishes `/cmd_vel` (TwistStamped in your implementation)
-
-There is **no Nav2** in the control loop.
+There is no global planning, no obstacle avoidance, and no mapping.
 
 ---
 
-## 2) Topic Data Flow
+## 2. Node Responsibilities
+
+### 2.1 `yolo_follower.py`
+
+This single node performs all functions:
+
+- Subscribes to RGB and depth images
+- Runs YOLO to detect a person
+- Selects the closest valid target
+- Computes linear and angular velocities
+- Publishes velocity commands to the Jackal base
+
+No Nav2 components are involved.
+
+---
+
+## 3. Topic and Data Flow
 
 ```text
 /camera/camera/color/image_raw      (Image)  \
-/camera/camera/depth/image_rect_raw (Image)   --> yolo_follower.py --> /cmd_vel (TwistStamped)
+/camera/camera/depth/image_rect_raw (Image)   --> yolo_follower.py --> /cmd_vel
 ````
 
-The base controller drives the Jackal from `/cmd_vel`.
-
-> Note: Some controllers expect `geometry_msgs/Twist` not `TwistStamped`. Ensure your Clearpath config matches.
+The Jackal base controller consumes `/cmd_vel` and drives the robot accordingly.
 
 ---
 
-## 3) What `yolo_follower.py` Does (Step-by-Step)
+## 4. Target Selection
 
-### 3.1 Throttled YOLO Loop
+For each YOLO inference cycle:
 
-The callback runs YOLO no faster than:
+1. All detections are filtered to COCO class `0` (person).
+2. The bounding box center `(cx, cy)` is computed.
+3. Depth at `(cx, cy)` is sampled.
+4. Candidates are rejected if:
 
-* `RUN_RATE = 0.2` seconds → ~5 Hz
+   * Depth is NaN or infinite
+   * Depth is below a minimum threshold (sensor noise)
+   * Pixel is out of bounds
+5. The **closest valid person** (minimum depth) is selected as the target.
 
-This prevents high CPU usage and reduces command jitter.
-
----
-
-### 3.2 Person Detection and Target Selection
-
-The node:
-
-* runs YOLO on the RGB frame
-* filters detections to class 0 (person)
-* for each person:
-
-  * compute bbox center `(cx, cy)`
-  * read depth at that pixel
-  * reject invalid depth:
-
-    * NaN
-    * too close (< 0.4 m)
-* choose the closest valid person (minimum depth)
-
-So the target is **the closest detected person**, not “largest bbox”.
+This ensures the robot follows the nearest firefighter when multiple people are present.
 
 ---
 
-## 4) The Control Law (How it decides v and w)
+## 5. Control Law
 
-The node computes two error signals:
+The follower computes two independent control signals:
 
-### 4.1 Horizontal centering error → angular velocity
+* Angular velocity (turning)
+* Linear velocity (forward motion)
+
+These are derived from image-space and depth errors.
+
+---
+
+### 5.1 Horizontal Error → Angular Velocity
+
+The horizontal error is normalized by image width:
 
 ```text
-center_error = (cx - image_width/2) / (image_width/2)
+center_error = (cx - image_width / 2) / (image_width / 2)
 ```
 
-This normalizes pixel offset into approximately [-1, +1].
+This produces a value approximately in the range `[-1, +1]`.
 
-Then it computes turn rate with a nonlinear “edge lock” behavior:
+Turning behavior uses a nonlinear mapping:
 
-* if the person is near the edge, turn at max
-* otherwise, use a power curve to reduce jitter near center
+* If the target is near the image edge, the robot turns at maximum rate.
+* Near the image center, turning is gentle to reduce jitter.
 
-Parameters:
+Key parameters:
 
-* `EDGE_LOCK = 0.70`
-* `TURN_EXP = 2.2`
-* `MAX_TURN = 1.2 rad/s`
+* `EDGE_LOCK` – threshold for full-rate turning
+* `TURN_EXP` – exponent shaping the response curve
+* `MAX_TURN` – maximum angular velocity
 
-This yields:
-
-* **gentle turning** when close to center
-* **aggressive turning** when the person approaches the edge
+This design yields stable tracking near center while still reacting aggressively when the target approaches the edge of the camera view.
 
 ---
 
-### 4.2 Distance error → forward velocity
+### 5.2 Distance Error → Forward Velocity
+
+Forward motion is computed from distance error:
 
 ```text
 dist_error = depth - TARGET_DISTANCE
-forward = clip(dist_error * 0.6, 0, MAX_SPEED)
+linear_x = clip(dist_error * k, 0, MAX_SPEED)
 ```
 
-Key behavior:
+Behavior:
 
-* If person is far → forward is positive → move forward
-* If person is too close → forward would be negative, but it is clipped to 0
-  → robot **will not reverse** in this mode
+* If the firefighter is farther than the target distance, the robot moves forward.
+* If the firefighter is closer than the target distance, forward velocity is clamped to zero.
+* The robot does not reverse in this mode.
 
-Parameter:
-
-* `TARGET_DISTANCE = 1.5 m`
-* `MAX_SPEED = 0.7 m/s`
+This prevents oscillations and unintended backward motion.
 
 ---
 
-### 4.3 Command sign convention
+## 6. Motion Smoothing
 
-The node publishes:
-
-```text
-cmd = [forward, -turn]
-```
-
-That negative sign is chosen to match your camera/robot yaw convention.
-
-If the robot turns away from the person, flip the sign.
-
----
-
-## 5) Motion Smoothing (Why it doesn’t “snap” each frame)
-
-The node applies a low-pass filter to [v, w]:
+Raw velocity commands are filtered using an exponential moving average:
 
 ```text
-last_cmd = alpha * target_cmd + (1 - alpha) * last_cmd
+cmd = alpha * new_cmd + (1 - alpha) * previous_cmd
 ```
 
 Where:
 
-* `VEL_ALPHA = 0.15`
+* `VEL_ALPHA` controls responsiveness vs smoothness
 
-Interpretation:
+This smoothing:
 
-* only 15% of the new command is applied each update
-* 85% comes from the previous command
-
-This reduces jerk and makes following feel “smooth”.
-
----
-
-## 6) Lost Target Behavior (Decay then Stop)
-
-If the person is not detected, it does **not** immediately stop.
-
-It uses:
-
-* `STOP_TIMEOUT = 0.8 s`
-* `DECAY = 0.85`
-
-Logic:
-
-1. If the person was seen recently (< timeout):
-
-   * multiply commands by DECAY (ramps down)
-2. If lost longer than timeout:
-
-   * set commands to zero
-
-This helps when YOLO briefly misses a frame.
+* Reduces jerk
+* Mitigates noise from YOLO and depth sampling
+* Produces more stable motion on the real robot
 
 ---
 
-## 7) What This Mode Does NOT Do
+## 7. Lost-Target Handling
 
-* ❌ obstacle avoidance
-* ❌ global planning
-* ❌ recovery behaviors
-* ❌ stable tracking in crowds
-* ❌ map-based navigation
+The follower does not immediately stop if the firefighter is momentarily lost.
 
-This mode will drive into obstacles if the person is behind them.
+Instead:
 
----
+1. If the target was seen recently:
 
-## 8) When to Use This Mode
+   * Velocity commands decay gradually using a multiplicative factor.
+2. If the target has been lost longer than a timeout:
 
-Use the direct velocity follower for:
+   * Commands are set to zero.
 
-* open areas
-* controlled environments
-* quick perception/controller prototyping
-* verifying�RW¼Zr8`JݢNvWă\N5\f
+Parameters:
 
-Do NOT use it for cluttered indoor spaces unless a human has an immediate stop override.
+* `STOP_TIMEOUT` – duration before full stop
+* `DECAY` – velocity decay factor
+
+This allows brief perception dropouts without abrupt stops.
 
 ---
 
-## 9) Tuning Guide (What to Change First)
+## 8. Command Publication
 
-* Follow distance:
+Velocity commands are published as:
 
-  * `TARGET_DISTANCE`
-* Smoothness:
+* Linear velocity: `twist.linear.x`
+* Angular velocity: `twist.angular.z`
 
-  * `VEL_ALPHA` (higher = snappier, lower = smoother)
-* Turn aggressiveness:
+Depending on configuration, the message type may be:
 
-  * `MAX_TURN`
-  * `TURN_EXP`
-  * `EDGE_LOCK`
-* Maximum approach speed:
+* `geometry_msgs/Twist`, or
+* `geometry_msgs/TwistStamped`
 
-  * `MAX_SPEED`
-* Lost-target behavior:
-
-  * `STOP_TIMEOUT`
-  * `DECAY`
+The base controller must be configured to accept the chosen message type.
 
 ---
 
-## 10) Debugging Tips
+## 9. What This Mode Does Not Do
 
-### Verify commands are publishing
+The Direct Velocity follower does **not** provide:
 
-```bash
-ros2 topic echo /j100_0000/cmd_vel
+* Obstacle avoidance
+* Global or local planning
+* Recovery behaviors
+* Map awareness
+* Crowd disambiguation
+
+The robot will drive into obstacles if the firefighter moves behind them.
+
+---
+
+## 10. When to Use This Mode
+
+This mode is appropriate for:
+
+* Open, uncluttered environments
+* Early perception and control testing
+* Demonstrations at very low speed
+* Debugging YOLO and depth alignment
+
+It is *not recommended* for operational deployment in cluttered or dynamic environments.
+
+---
+
+## 11. Key Parameters to Tune
+
+In `yolo_follower.py`:
+
+* `TARGET_DISTANCE` – desired following distance
+* `MAX_SPEED` – maximum forward speed
+* `MAX_TURN` – maximum angular velocity
+* `EDGE_LOCK` – screen edge turn threshold
+* `TURN_EXP` – turning response curve exponent
+* `VEL_ALPHA` – command smoothing factor
+* `STOP_TIMEOUT` – lost-target timeout
+* `DECAY` – velocity decay rate
+* `RUN_RATE` – YOLO inference interval
+
+---
+
+## 12. Debugging Checklist
+
+* Verify YOLO detections are occurring
+* Verify depth is aligned with RGB image
+* Confirm `/cmd_vel` is being published:
+
+  ```bash
+  ros2 topic echo /j100_0000/cmd_vel
+  ```
+* Ensure the base controller accepts the command message type
+* Reduce speed limits during initial testing
+
+---
+
+## 13. Safety Notes
+
+* Always test with low speed limits
+* Maintain a joystick or E-stop override
+* Do not operate in crowded or cluttered environments
+* Supervise at all times during operation
+
 ```
-
-### Verify base is accepting commands
-
-* confirm controller listens to TwistStamped if used
-* check Clearpath topics + mux settings
-
-### Verify depth is aligned
-
-If depth isn’t aligned with RGB, the depth sampled at (cx,cy) will be wrong and behavior becomes unstable.
-
----
-
-## 11) Safety Notes
-
-* Start with low MAX_SPEED
-* Keep an E-stop or joystick override active
-* Test with clear space and soft barriers first
+```
