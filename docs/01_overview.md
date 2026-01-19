@@ -133,7 +133,7 @@ This mode does not use Nav2 or SLAM and does not perform obstacle avoidance. It 
 ### Hardware
 
 * Clearpath Jackal J100 (ROS 2 Jazzy image)
-* Intel RealSense D435 or D455
+* Intel RealSense D435
 * Offboard laptop with:
 
   * Ubuntu 24.04 Desktop
