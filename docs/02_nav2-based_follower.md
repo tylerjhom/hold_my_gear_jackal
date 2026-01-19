@@ -1,4 +1,4 @@
-# 02 — Nav2-Based Follower (YOLO → Pose Goal → Nav2)
+# 02 - Nav2-Based Follower (YOLO → Pose Goal → Nav2)
 
 This document explains how the **Nav2-based follower** works end-to-end on the Jackal. It focuses on how perception, goal generation, and navigation interact, and why this approach is preferred over direct velocity control for real-world operation.
 
@@ -49,9 +49,9 @@ This node is the only component that directly interfaces with Nav2.
 ### 3.1 High-Level Topic Flow
 
 ```text
-/camera/camera/color/image_raw            (Image)      \
-/camera/camera/depth/image_rect_raw       (Image)       --> yolo_nav2_follower --> follow_goal (PoseStamped)
- /camera/camera/color/camera_info         (CameraInfo) /
+/camera/camera/color/image_raw         (Image)      \
+/camera/camera/depth/image_rect_raw    (Image)       --> yolo_nav2_follower --> follow_goal (PoseStamped)
+/camera/camera/color/camera_info       (CameraInfo) /
 
 follow_goal (PoseStamped)
         |
@@ -69,7 +69,7 @@ Nav2 (planner + controller)
 
 ## 4. Coordinate Frames
 
-The YOLO node computes **relative** motion commands and publishes goals in the robot frame:
+The YOLO node computes *relative* motion commands and publishes goals in the robot frame:
 
 * `frame_id = base_link`
 * `x` = forward displacement (meters)
