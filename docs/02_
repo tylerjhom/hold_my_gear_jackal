@@ -1,353 +1,261 @@
-## `docs/02_robot_setup.md`
-
 ````md
 # 02 — Nav2-Based Follower (YOLO → Pose Goal → Nav2)
 
-This document explains how the **Nav2-based follower** works end-to-end on the Jackal, including:
-- what each node does
-- what topics/frames are used
-- how the goal is computed and throttled
-- how Nav2 receives goals and turns them into safe motion
-
-> **Summary:** YOLO estimates where the firefighter is relative to the robot, publishes a goal pose, and **Nav2 handles path planning + obstacle avoidance + velocity control**.
+This document explains how the **Nav2-based follower** works end-to-end on the Jackal. It focuses on how perception, goal generation, and navigation interact, and why this approach is preferred over direct velocity control for real-world operation.
 
 ---
 
-## 1) The Nav2-Based Follower Architecture
+## 1. Overview
 
-### 1.1 Node Roles
+In Nav2-based follow mode, the robot does **not** drive directly from perception outputs. Instead:
 
-There are two key nodes in this mode:
+1. YOLO detects a firefighter in the camera image.
+2. Depth data is used to estimate the firefighter’s position relative to the robot.
+3. A relative follow goal is generated and published as a `PoseStamped`.
+4. A Nav2 client node forwards that goal to the Nav2 stack.
+5. Nav2 plans and executes a safe path, handling obstacle avoidance and velocity control.
 
-1. **`yolo_nav2_follower.py`**  
-   *Perception + goal generation*  
-   - subscribes to RGB + depth + camera intrinsics  
-   - runs YOLO to find a person  
-   - estimates the person’s **relative position**  
-   - publishes a **PoseStamped follow goal** on `follow_goal`
-
-2. **`nav_to_pose_test.py`** (or `jackal_follow_nav_client` in your code)  
-   *Nav2 goal executor*  
-   - subscribes to `follow_goal`  
-   - forwards the goal to Nav2 using `BasicNavigator.goToPose()`  
-   - cancels/replaces goals when new ones arrive  
-   - monitors feedback / cancels if “close enough” or timed out
-
-Nav2 then:
-- maintains costmaps
-- plans around obstacles
-- generates `/cmd_vel` commands for the Jackal
+This cleanly separates **perception and intent** from **navigation and control**.
 
 ---
 
-## 2) Topic & Frame Data Flow
+## 2. Node Responsibilities
 
-### 2.1 Topics (High-Level)
+### 2.1 `yolo_nav2_follower.py` (Perception + Goal Generation)
+
+This node is responsible for:
+- Running YOLO on RGB images
+- Selecting the firefighter to follow
+- Estimating the firefighter’s relative position
+- Publishing a follow goal on the `follow_goal` topic
+
+It does **not** command the robot’s wheels directly.
+
+---
+
+### 2.2 `nav_to_pose_test.py` / `jackal_follow_nav_client` (Nav2 Interface)
+
+This node:
+- Subscribes to `follow_goal`
+- Cancels any active Nav2 task when a new goal arrives
+- Sends the new goal to Nav2 using `BasicNavigator`
+- Monitors progress and cancels goals when appropriate
+
+This node is the only component that directly interfaces with Nav2.
+
+---
+
+## 3. Topic and Data Flow
+
+### 3.1 High-Level Topic Flow
 
 ```text
 /camera/camera/color/image_raw            (Image)      \
 /camera/camera/depth/image_rect_raw       (Image)       --> yolo_nav2_follower --> follow_goal (PoseStamped)
  /camera/camera/color/camera_info         (CameraInfo) /
 
-follow_goal (PoseStamped) --> nav_to_pose_test --> Nav2 action server --> controller --> /cmd_vel --> Jackal
+follow_goal (PoseStamped)
+        |
+        v
+nav_to_pose_test / jackal_follow_nav_client
+        |
+        v
+Nav2 (planner + controller)
+        |
+        v
+/cmd_vel
 ````
 
-### 2.2 Frames (Critical)
+---
 
-The YOLO node computes a **relative** goal. In your current code it publishes:
+## 4. Coordinate Frames
 
-* `goal.header.frame_id = "base_link"`
+The YOLO node computes **relative** motion commands and publishes goals in the robot frame:
 
-Meaning:
+* `frame_id = base_link`
+* `x` = forward displacement (meters)
+* `y` = lateral displacement (meters)
 
-> “Go to a pose that is **X meters forward and Y meters left/right**, relative to the robot *right now*.”
+This expresses the intent:
 
-Nav2 typically expects goals in the **global frame** (usually `map`) for planning.
+> “Move this far forward and sideways relative to the robot’s current pose.”
 
-**Important:** The executor node must either:
-
-* **transform** the `base_link` goal into `map`, or
-* ensure YOLO publishes goals directly in `map`
-
-If frame handling is inconsistent, the robot may:
-
-* drive in wrong directions
-* not move
-* appear to “ignore” goals
+Nav2 ultimately plans and executes motion in the global `map` frame, so frame consistency must be handled correctly by the Nav2 client.
 
 ---
 
-## 3) How `yolo_nav2_follower.py` Works (Step-by-Step)
+## 5. YOLO-Based Goal Computation
 
-### 3.1 Inputs
-
-**RGB image** provides bounding boxes from YOLO.
-**Depth image** provides metric range at pixel locations.
-**CameraInfo** provides intrinsics (fx, cx) needed to convert pixels into meters laterally.
-
----
-
-### 3.2 YOLO Inference Throttling
-
-The node runs YOLO at a controlled rate:
-
-* `RUN_RATE_SEC = 1.0` → ~1 Hz inference
-
-This prevents:
-
-* CPU starvation
-* goal spam into Nav2
-* excessive goal cancel/replan churn
-
----
-
-### 3.3 Selecting the Follow Target
+### 5.1 Target Selection
 
 For each YOLO detection:
 
-* keep only COCO class `0` (person)
-* compute bounding box center `(cx, cy)`
-* read depth at that pixel `depth = depth_image[cy, cx]`
+* Only COCO class `0` (person) is considered.
+* The center pixel of the bounding box `(cx, cy)` is computed.
+* Depth at that pixel is sampled from the depth image.
+* Invalid samples are rejected:
 
-It chooses the *closest valid* person by minimum depth, after rejecting:
+  * NaN or infinite depth
+  * Depth outside `[MIN_VALID_DEPTH, MAX_VALID_DEPTH]`
+  * Pixel out of bounds
 
-* NaN / inf depth
-* too close (`MIN_VALID_DEPTH`)
-* too far (`MAX_VALID_DEPTH`)
-* out-of-bounds pixel indices
+The closest valid person (minimum depth) is selected as the follow target.
 
 ---
 
-### 3.4 Pixel → Metric Lateral Offset
+### 5.2 Pixel to Metric Conversion
 
-This is the key geometric conversion.
-
-Using a pinhole camera model:
+To compute lateral offset, the node uses the pinhole camera model:
 
 ```text
 x_cam_right = (cx - cx_intrinsic) * depth / fx
 ```
 
-* `cx_intrinsic` is the principal point center (from CameraInfo K matrix)
-* `fx` is focal length in pixels (from CameraInfo)
+Where:
+
+* `cx_intrinsic` and `fx` come from `CameraInfo`
 * `depth` is in meters
 
-This yields `x_cam_right` in meters (right positive in camera coordinates).
+If `CameraInfo` is unavailable, a fallback focal length is estimated from a nominal horizontal field of view.
 
-Then the node defines:
+The lateral displacement used for navigation is then:
 
 ```text
 lateral = -x_cam_right
 ```
 
-This sign flip is a convention: it maps camera-right into robot-left/right consistently.
-
-A clamp is applied:
-
-* `MAX_LATERAL_GOAL = 2.0 m`
-
-to prevent extreme side-steps from bad edge detections.
+A clamp is applied to prevent extreme lateral goals.
 
 ---
 
-### 3.5 Distance Control (Forward Component)
+### 5.3 Forward Offset
 
-The node sets:
+Forward motion is computed as:
 
 ```text
 forward = depth - TARGET_DISTANCE
 ```
 
-If the firefighter is farther than desired distance:
-
-* forward is positive → move forward
-
-If closer than desired:
-
-* forward is negative → goal is behind the robot (Nav2 may back up if allowed)
+This keeps the robot approximately `TARGET_DISTANCE` meters behind the firefighter.
 
 ---
 
-### 3.6 Goal Filtering / Anti-Churn Logic
+## 6. Goal Filtering and Rate Limiting
 
-Nav2 is not meant to accept new goals continuously at sensor rate. This node uses:
+Nav2 is not designed to accept continuously changing goals at sensor rates. To avoid excessive replanning, the YOLO node enforces:
 
-1. **Deadband**
+### 6.1 Deadband
 
-   * If both forward and lateral are small, do nothing:
-
-   ```text
-   if |forward| < DEADBAND and |lateral| < DEADBAND:
-       skip
-   ```
-
-2. **Cooldown**
-
-   * Do not publish a new goal too soon after the last one unless it’s a big change:
-
-   * `GOAL_COOLDOWN_SEC = 3.0`
-
-3. **Planar delta threshold**
-
-   * Only publish if the new goal differs enough in *2D*:
-
-   * `MIN_FORWARD_DELTA = 0.5 m` (used as planar delta threshold)
-
-This avoids:
-
-* constant cancel/replan loops
-* jerky motion
-* Nav2 oscillations
+If both forward and lateral errors are small, no new goal is published.
 
 ---
 
-### 3.7 Published Goal Message
+### 6.2 Planar Delta Threshold
 
-The YOLO node publishes a PoseStamped like:
-
-* `frame_id = "base_link"`
-* `position.x = forward`
-* `position.y = lateral`
-* yaw = identity quaternion (no orientation goal)
-
-This is a **relative waypoint**, not a global destination.
+A new goal is only published if the change in position exceeds a minimum planar distance.
 
 ---
 
-## 4) How `nav_to_pose_test.py` Works (Step-by-Step)
+### 6.3 Cooldown Timer
 
-### 4.1 Nav2 Activation
+Even if the goal changes, it will not be resent unless a minimum cooldown time has elapsed or the change is sufficiently large.
 
-The node creates:
-
-```python
-navigator = BasicNavigator(namespace='j100_0000')
-navigator.waitUntilNav2Active(localizer='slam_toolbox')
-```
-
-Meaning:
-
-* the robot must have Nav2 running
-* localization must be active (slam_toolbox in this case)
+This prevents oscillations and goal churn.
 
 ---
 
-### 4.2 Goal Reception
+## 7. Goal Message Format
 
-The node subscribes to:
+The published message has the following structure:
 
-* `follow_goal` (PoseStamped)
+* `header.frame_id = "base_link"`
+* `pose.position.x = forward`
+* `pose.position.y = lateral`
+* Orientation set to identity (yaw is not commanded)
 
-It stores only the latest received message (last-write wins).
-
----
-
-### 4.3 Goal Replacement Behavior
-
-When a new goal arrives:
-
-* if a Nav2 task is active → cancel it
-* send the new goal
-
-This ensures the robot tracks a moving firefighter rather than finishing an old plan.
+This represents a **relative waypoint**, not a final destination.
 
 ---
 
-### 4.4 Feedback Cancellation Conditions
+## 8. Nav2 Goal Execution
 
-While Nav2 is executing:
+When a new follow goal is received:
 
-* prints distance remaining periodically
-* cancels if:
+1. Any active Nav2 task is canceled.
+2. The new goal is forwarded to Nav2 using `goToPose()`.
+3. Nav2:
 
-  * `distance_remaining < 0.5 m` (“close enough”)
-  * navigation time exceeds `300 sec`
+   * Plans a collision-free path
+   * Avoids obstacles using costmaps
+   * Generates smooth velocity commands
 
-These are safety and usability constraints.
+The client node monitors feedback and cancels the goal if:
 
----
-
-## 5) Frame Consistency Checklist (Very Important)
-
-### Option A (Recommended): Publish goals in `map`
-
-If Nav2 executor expects `map` goals, make YOLO publish in `map`:
-
-* transform relative base_link goal into map using tf2
-* publish as `frame_id="map"`
-
-### Option B: Respect the message frame in the Nav2 client
-
-If YOLO publishes in `base_link`, the Nav2 executor must:
-
-* read `msg.header.frame_id`
-* transform into `map` before calling `goToPose()`
-
-**If you do neither**, you may accidentally interpret base_link-relative meters as map meters, which is wrong.
+* The robot is within a short distance of the goal
+* Navigation time exceeds a timeout
 
 ---
 
-## 6) Why Nav2-Based Following is “Recommended”
+## 9. Frame Consistency Requirements
 
-Compared to publishing `/cmd_vel` directly:
+One of the most common failure modes is frame mismatch.
 
-✅ obstacle avoidance via costmaps
-✅ smoother motion via controller
-✅ less sensitive to single-frame perception noise
-✅ can navigate around obstacles to reacquire target
-✅ better behavior in cluttered environments
+You must ensure **one** of the following is true:
+
+* The YOLO node publishes goals in the `map` frame, or
+* The Nav2 client transforms `base_link` goals into the `map` frame before calling `goToPose()`
+
+If neither is done, Nav2 may interpret relative displacements as absolute map coordinates, leading to incorrect behavior.
 
 ---
 
-## 7) Tuning Parameters (What to Adjust First)
+## 10. Why Nav2-Based Following Is Recommended
+
+Compared to direct velocity control, this approach provides:
+
+* Obstacle avoidance via costmaps
+* Stable, smooth motion
+* Robust behavior in cluttered environments
+* Reduced sensitivity to perception noise
+* Clear separation of perception and control
+
+This makes it suitable for real-world firefighter support scenarios.
+
+---
+
+## 11. Key Parameters to Tune
 
 In `yolo_nav2_follower.py`:
 
-* `TARGET_DISTANCE` (1.5 m): follow distance
-* `DEADBAND` (0.4): how “still” the target must be before ignoring updates
-* `MIN_FORWARD_DELTA` (0.5): how much change is required to publish a new goal
-* `GOAL_COOLDOWN_SEC` (3.0): minimum time between goals unless large change
-* `MAX_LATERAL_GOAL` (2.0): max side-step request
-* `RUN_RATE_SEC` (1.0): YOLO update rate
+* `TARGET_DISTANCE` – desired following distance
+* `DEADBAND` – tolerance before ignoring updates
+* `MIN_FORWARD_DELTA` – minimum positional change to trigger a new goal
+* `GOAL_COOLDOWN_SEC` – minimum time between goals
+* `MAX_LATERAL_GOAL` – lateral displacement clamp
+* `RUN_RATE_SEC` – YOLO inference rate
 
 ---
 
-## 8) Debugging Tips
+## 12. Debugging Checklist
 
-### Confirm detections are happening
+* Confirm YOLO detections are occurring
+* Confirm `follow_goal` is being published:
 
-* YOLO logs should show detections + depths.
-
-### Confirm follow goals are being published
-
-```bash
-ros2 topic echo /follow_goal
-```
-
-### Confirm Nav2 client receives goals
-
-* you should see “Received new follow goal” logs
-
-### Confirm Nav2 is active
-
-```bash
-ros2 lifecycle get /j100_0000/navigate_to_pose
-```
-
-### Confirm transforms exist
-
-```bash
-ros2 run tf2_tools view_frames
-```
+  ```bash
+  ros2 topic echo /follow_goal
+  ```
+* Confirm Nav2 is active and accepting goals
+* Verify transforms between `map`, `odom`, and `base_link`
+* Ensure frame IDs are consistent throughout the pipeline
 
 ---
 
-## 9) Safety Notes
+## 13. Safety Notes
 
-* Nav2 will attempt to plan around obstacles, but **a human follower still needs supervision**
-* Always test at low speed in a controlled space first
-* Ensure an E-stop / joystick override is available
+* Always test at low speed initially
+* Maintain a joystick or E-stop override
+* Supervise operation in dynamic environments
+* Validate frame handling before autonomous use
 
-````
-
-
+```
+```
